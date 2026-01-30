@@ -24,7 +24,8 @@ export const authApi = {
   registerUser: (data) => callFunction('registerUser', data),
   updateProfile: (data) => callFunction('updateUserProfile', data),
   getProfile: () => callFunction('getUserProfile'),
-  updateFCMToken: (token) => callFunction('updateFCMToken', { token })
+  updateFCMToken: (token) => callFunction('updateFCMToken', { token }),
+  deleteUser: (userId) => callFunction('deleteUser', { userId })
 };
 
 // ============ Agency Functions ============
@@ -48,6 +49,7 @@ export const houseApi = {
   addMember: (houseId, data) => callFunction('addHouseMember', { houseId, ...data }),
   removeMember: (houseId, userId) => callFunction('removeHouseMember', { houseId, userId }),
   changeAdmin: (houseId, newAdminId) => callFunction('changeHouseAdmin', { houseId, newAdminId }),
+  delete: (houseId) => callFunction('deleteHouse', { houseId }),
   getMembers: (houseId) => callFunction('getHouseMembers', { houseId }),
   getMyHouses: () => callFunction('getMyHouses')
 };

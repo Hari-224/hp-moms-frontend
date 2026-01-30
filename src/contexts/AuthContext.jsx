@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useState, useRef } from 'react';
 import { 
   onAuthStateChanged, 
   signInWithEmailAndPassword,
@@ -23,23 +23,26 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [userData, setUserData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [userUnsubscribe, setUserUnsubscribe] = useState(null);
+  
+  // Use a ref for the listener to avoid stale closure issues
+  const unsubscribeUserRef = useRef(null);
 
   // Listen to auth state changes
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       // Clean up previous user listener
-      if (userUnsubscribe) {
-        userUnsubscribe();
-        setUserUnsubscribe(null);
+      if (unsubscribeUserRef.current) {
+        unsubscribeUserRef.current();
+        unsubscribeUserRef.current = null;
       }
       
       setUser(firebaseUser);
       
       if (firebaseUser) {
+        setLoading(true);
         // Listen to user data changes
         const userDocRef = doc(db, 'users', firebaseUser.uid);
-        const unsubscribeUser = onSnapshot(userDocRef, async (userDoc) => {
+        unsubscribeUserRef.current = onSnapshot(userDocRef, async (userDoc) => {
           if (userDoc.exists()) {
             let data = { id: userDoc.id, ...userDoc.data() };
             
@@ -63,19 +66,17 @@ export function AuthProvider({ children }) {
             
             setUserData(data);
           } else {
+            console.log('No user document found for UID:', firebaseUser.uid);
             setUserData(null);
           }
           setLoading(false);
         }, (error) => {
-          // Ignore permission errors during logout
           if (error.code !== 'permission-denied') {
             console.error('Error fetching user data:', error);
           }
           setUserData(null);
           setLoading(false);
         });
-
-        setUserUnsubscribe(() => unsubscribeUser);
       } else {
         setUserData(null);
         setLoading(false);
@@ -84,8 +85,8 @@ export function AuthProvider({ children }) {
 
     return () => {
       unsubscribe();
-      if (userUnsubscribe) {
-        userUnsubscribe();
+      if (unsubscribeUserRef.current) {
+        unsubscribeUserRef.current();
       }
     };
   }, []);
@@ -93,6 +94,7 @@ export function AuthProvider({ children }) {
   // Login with phone and password
   const login = async (phone, password) => {
     try {
+      setLoading(true);
       const email = phoneToEmail(phone);
       const result = await signInWithEmailAndPassword(auth, email, password);
       
@@ -134,18 +136,20 @@ export function AuthProvider({ children }) {
 
   // Register new user with phone and password
   const register = async (phone, password, name) => {
+    let authUserCreated = null;
+    
     try {
-      const email = phoneToEmail(phone);
-      const result = await createUserWithEmailAndPassword(auth, email, password);
+      setLoading(true);
       
       // Normalize phone number (remove non-digits)
       const normalizedPhone = phone.replace(/[^0-9]/g, '');
       
-      // Check if this phone is in any house
+      // STEP 1: Check if this phone is pre-authorized (exists in any house)
       let houseId = null;
       let smallHouseId = null;
       let agencyId = null;
-      let role = 'customer';
+      let role = null;
+      let houseName = null;
       
       try {
         // First, try to find by memberPhones array
@@ -170,26 +174,45 @@ export function AuthProvider({ children }) {
           houseId = houseDoc.id;
           smallHouseId = houseData.smallHouseId;
           agencyId = houseData.agencyId;
+          houseName = houseData.name;
           
           // Check if this user is the house admin
           if (houseData.houseAdminPhone === normalizedPhone) {
             role = 'house_admin';
+          } else {
+            role = 'customer';
           }
         }
       } catch (err) {
         console.error('Error checking house membership:', err);
+        setLoading(false);
+        toast.error('Failed to verify house membership. Please try again.');
+        return { success: false, error: 'Failed to verify house membership' };
       }
       
-      // Create user document in Firestore
+      // STEP 2: BLOCK registration if phone is not pre-authorized
+      if (!houseId || !agencyId || !role) {
+        setLoading(false);
+        const errorMessage = 'Your phone number is not registered with any house. Please contact your food agency or house admin to be added first.';
+        toast.error(errorMessage, { duration: 5000 });
+        return { success: false, error: errorMessage, code: 'NOT_AUTHORIZED' };
+      }
+      
+      // STEP 3: Create Firebase Auth user (only if pre-authorized)
+      const email = phoneToEmail(phone);
+      const result = await createUserWithEmailAndPassword(auth, email, password);
+      authUserCreated = result.user;
+      
+      // STEP 4: Create Firestore user document with proper mapping
       const userDocData = {
         id: result.user.uid,
         phone: normalizedPhone,
         name: name,
         role: role,
         status: 'active',
-        ...(houseId && { houseId }),
-        ...(smallHouseId && { smallHouseId }),
-        ...(agencyId && { agencyId }),
+        houseId: houseId,
+        smallHouseId: smallHouseId,
+        agencyId: agencyId,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       };
@@ -197,20 +220,30 @@ export function AuthProvider({ children }) {
       await setDoc(doc(db, 'users', result.user.uid), userDocData);
       setUserData(userDocData);
       
-      if (houseId) {
-        toast.success(`Registration successful! You've been linked to your house.`);
-      } else {
-        toast.success('Registration successful!');
-      }
-      return { success: true, user: result.user };
+      toast.success(`Welcome ${name}! You've been linked to ${houseName || 'your house'}.`, { duration: 4000 });
+      return { success: true, user: result.user, houseName };
     } catch (error) {
       console.error('Register error:', error);
       
+      // If auth user was created but Firestore doc failed, clean up the auth user
+      if (authUserCreated) {
+        try {
+          await authUserCreated.delete();
+          console.log('Cleaned up orphaned auth user');
+        } catch (cleanupError) {
+          console.error('Failed to cleanup auth user:', cleanupError);
+        }
+      }
+      
+      setLoading(false);
+      
       let message = 'Registration failed';
       if (error.code === 'auth/email-already-in-use') {
-        message = 'This phone number is already registered';
+        message = 'This phone number is already registered. Please sign in instead.';
       } else if (error.code === 'auth/weak-password') {
         message = 'Password should be at least 6 characters';
+      } else if (error.code === 'auth/invalid-email') {
+        message = 'Invalid phone number format';
       }
       
       toast.error(message);
@@ -222,10 +255,11 @@ export function AuthProvider({ children }) {
   const signOut = async () => {
     try {
       // Unsubscribe from user listener first to avoid permission errors
-      if (userUnsubscribe) {
-        userUnsubscribe();
-        setUserUnsubscribe(null);
+      if (unsubscribeUserRef.current) {
+        unsubscribeUserRef.current();
+        unsubscribeUserRef.current = null;
       }
+      
       setUser(null);
       setUserData(null);
       await firebaseSignOut(auth);

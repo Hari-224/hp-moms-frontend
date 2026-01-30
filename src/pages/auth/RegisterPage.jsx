@@ -73,7 +73,8 @@ export default function RegisterPage() {
             Create Account
           </h2>
           <p className="text-secondary-600 text-sm mb-6">
-            Register as a customer. Contact admin for agency access.
+            <span className="block mb-2">Your phone number must be pre-registered by your food agency or house admin.</span>
+            <span className="block text-warning-600 font-medium">⚠️ Registration is only available for authorized members.</span>
           </p>
 
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
@@ -82,6 +83,7 @@ export default function RegisterPage() {
               placeholder="Enter your full name"
               leftIcon={<User className="h-5 w-5" />}
               error={errors.name?.message}
+              autoComplete="name"
               {...register('name')}
             />
 
@@ -90,6 +92,7 @@ export default function RegisterPage() {
               placeholder="Enter your phone number"
               leftIcon={<Phone className="h-5 w-5" />}
               error={errors.phone?.message}
+              autoComplete="tel"
               {...register('phone')}
             />
 
@@ -99,6 +102,7 @@ export default function RegisterPage() {
               placeholder="Create a password (min 6 chars)"
               leftIcon={<Lock className="h-5 w-5" />}
               error={errors.password?.message}
+              autoComplete="new-password"
               {...register('password')}
             />
 
@@ -108,6 +112,7 @@ export default function RegisterPage() {
               placeholder="Confirm your password"
               leftIcon={<Lock className="h-5 w-5" />}
               error={errors.confirmPassword?.message}
+              autoComplete="new-password"
               {...register('confirmPassword')}
             />
 

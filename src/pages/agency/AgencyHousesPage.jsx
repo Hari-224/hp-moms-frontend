@@ -285,14 +285,24 @@ export default function AgencyHousesPage() {
       <ConfirmModal
         isOpen={!!deleteHouse}
         onClose={() => setDeleteHouse(null)}
-        onConfirm={() => {
-          // Handle delete
-          toast.success('House deleted');
-          setDeleteHouse(null);
+        onConfirm={async () => {
+          try {
+            const result = await houseApi.delete(deleteHouse.id);
+            if (result.success) {
+              toast.success(`House deleted! Removed ${result.data.deletedUsersCount} users, ${result.data.deletedOrdersCount} orders, ${result.data.deletedBillsCount} bills`);
+              queryClient.invalidateQueries(['houses']);
+            } else {
+              toast.error(result.error || 'Failed to delete house');
+            }
+          } catch (error) {
+            toast.error('Failed to delete house');
+          } finally {
+            setDeleteHouse(null);
+          }
         }}
         title="Delete House"
-        message={`Are you sure you want to delete "${deleteHouse?.name}"? This will remove all associated data.`}
-        confirmText="Delete"
+        message={`⚠️ Are you sure you want to delete "${deleteHouse?.name}"? This will PERMANENTLY remove:\n\n• All house members (from app & authentication)\n• All orders and bills\n• All related data\n\nThis action CANNOT be undone!`}
+        confirmText="Delete Permanently"
         variant="danger"
       />
     </Layout>

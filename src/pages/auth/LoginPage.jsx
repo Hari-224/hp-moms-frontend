@@ -74,6 +74,7 @@ export default function LoginPage() {
               placeholder="Enter your phone number"
               leftIcon={<Phone className="h-5 w-5" />}
               error={errors.phone?.message}
+              autoComplete="tel"
               {...register('phone')}
             />
 
@@ -83,6 +84,7 @@ export default function LoginPage() {
               placeholder="Enter your password"
               leftIcon={<Lock className="h-5 w-5" />}
               error={errors.password?.message}
+              autoComplete="current-password"
               {...register('password')}
             />
 
